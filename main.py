@@ -70,7 +70,7 @@ def monitor_loop():
 
             # 해당 PID가 가진 소켓만 조회
             try:
-                conns = p.connections(kind="tcp")
+                conns = p.net_connections(kind="tcp")
             except psutil.AccessDenied:
                 continue
 
