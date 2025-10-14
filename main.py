@@ -1,16 +1,14 @@
 from dataclasses import dataclass, field
 import psutil
-from scapy.all import *
+from scapy.all import TCP, sniff
 import time
-import json
+from config import Config
 
-#상수들
-port_score = 50 #비표준 포트 점수
-ssh_con_score = 20 #ssh 연결 방법 점수
-min_time = 100
-time_score = 10 #1분마다 점수 비례(기준은 나중에 바꿀 수 있음)
-data_score = 1 #100MB마다 점수 비례
-sniff_timeout = 3 #sniff 주기
+
+config=Config.load()
+
+config.save()
+
 
 @dataclass()
 class Connections:
@@ -47,12 +45,12 @@ def get_ssh_connections():
 def cal_score(conn):
     score = 0
     if conn.lport !=22 and conn.rport !=22:
-        score += port_score #비표준 포트 점수
-    if time.time()-conn.ts > min_time:
-        score += (time.time()-conn.ts)//60 * time_score
-        score += (conn.latest_bytes//(1024*1024)) * data_score 
+        score += config.PORT_SCORE #비표준 포트 점수
+    if time.time()-conn.ts > config.MIN_TIME:
+        score += (time.time()-conn.ts)//60 * config.TIME_SCORE
     if conn.cmdline and "-R" in conn.cmdline or "-D" in conn.cmdline or "-L" in conn.cmdline:
-        score += ssh_con_score
+        score += config.SSH_CON_SCORE
+    score += (conn.latest_bytes//(1024*1024)) * config.DATA_SCORE 
     return score
 
 def process_packet(packet):
@@ -67,33 +65,29 @@ def process_packet(packet):
 if __name__ == "__main__":
     ssh_conns=[]
 
-
     while True:
         ssh_conns_new = get_ssh_connections()
 
-
-        for c in ssh_conns:
-            if c not in ssh_conns_new:
-                ssh_conns.remove(c)
-        
-        for c in ssh_conns_new:
-            if c not in ssh_conns:
-                ssh_conns.append(c)
-        
         for c in ssh_conns:
             c.latest_bytes = 0
+            if c not in ssh_conns_new:
+                ssh_conns.remove(c)
 
-        sniff(timeout=sniff_timeout, prn=process_packet)
+        for c in ssh_conns_new:
+            c.latest_bytes = 0
+            if c not in ssh_conns:
+                ssh_conns.append(c)
+
+        sniff(timeout=config.SNIFF_TIMEOUT, prn=process_packet)
 
         time.sleep(1)
-
 
         for c in ssh_conns:
             score=cal_score(c)
             print(score)
             if score >=100:
                 print("Warning!!!!!")
-        
+
         print(ssh_conns)
 
 # 포트, 연결 지속, 데이터 량, -R -D -L
