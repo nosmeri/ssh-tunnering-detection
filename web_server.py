@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 import socket, json, struct, hmac, hashlib, os, sys
 
-from fastapi.responses import HTMLResponse
+from fastapi.exceptions import HTTPException
+
 from config import Config
 from fastapi import FastAPI, Request
 from typing import List
@@ -84,6 +85,8 @@ def get_stats():
 
 
 def send(cmd, argv=[]):
+    if not os.path.exists(config.SOCK_PATH):
+        raise HTTPException(500, "detector not running")
     # 간단 테스트 CLI
     if cmd == "add" and len(argv) == 3:
         return(whitelist_add(argv[2]))
