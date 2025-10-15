@@ -54,6 +54,8 @@ def get_ssh_connections():
             process_name = process.name()
             if "ssh" not in process_name.lower():
                 continue
+            if c.raddr.ip in load_whitelist():
+                continue
             ssh_conns.append(
                 Connections(c.laddr.ip, c.laddr.port, c.raddr.ip, c.raddr.port, c.pid, process.cmdline())
             )
