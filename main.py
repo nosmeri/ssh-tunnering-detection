@@ -131,10 +131,6 @@ def compute_hmac_for(obj: Dict[str, Any]) -> str:
     cb = json.dumps(check, separators=(",", ":"), sort_keys=True).encode()
     return hmac.new(SECRET_TOKEN, cb, hashlib.sha256).hexdigest()
 
-def compute_hmac_for(type_, payload, secret):
-    obj = {"type": type_, "payload": payload}
-    b = json.dumps(obj, separators=(",", ":"), sort_keys=True).encode()
-    return hmac.new(secret, b, hashlib.sha256).hexdigest()
 
 # 화이트리스트 로드/저장
 def load_whitelist():
