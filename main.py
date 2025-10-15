@@ -90,18 +90,13 @@ def process_packet(packet):
                 # print(f"Packet: {packet[IP].src}:{packet[TCP].sport} -> {packet[IP].dst}:{packet[TCP].dport}, Size: {len(packet)}")
                 break
 
-
+# 토큰 로드
 def load_token():
     with open(config.TOKEN_FILE, "r") as f:
         return f.read().strip()
 
 
-def compute_hmac_for(type_, payload, secret):
-    obj = {"type": type_, "payload": payload}
-    b = json.dumps(obj, separators=(",", ":"), sort_keys=True).encode()
-    return hmac.new(secret, b, hashlib.sha256).hexdigest()
-
-
+#소켓 준비
 def prepare_socket():
     if os.path.exists(config.SOCK_PATH):
         os.remove(config.SOCK_PATH)
@@ -112,7 +107,7 @@ def prepare_socket():
     srv.listen(8)
     return srv
 
-
+# 길이 접두사가 있는 데이터 읽기/쓰기
 def read_prefixed(conn):
     hdr = conn.recv(4)
     if not hdr or len(hdr) < 4:
@@ -125,27 +120,28 @@ def read_prefixed(conn):
             break
         data += chunk
     return data
-
-
 def send_prefixed(conn, obj):
     b = json.dumps(obj, ensure_ascii=False).encode()
     conn.sendall(struct.pack(">I", len(b)) + b)
 
-
+# HMAC 계산
 def compute_hmac_for(obj: Dict[str, Any]) -> str:
     # canonicalize: type+payload sorted, no spaces
     check = {"type": obj["type"], "payload": obj["payload"]}
     cb = json.dumps(check, separators=(",", ":"), sort_keys=True).encode()
     return hmac.new(SECRET_TOKEN, cb, hashlib.sha256).hexdigest()
 
+def compute_hmac_for(type_, payload, secret):
+    obj = {"type": type_, "payload": payload}
+    b = json.dumps(obj, separators=(",", ":"), sort_keys=True).encode()
+    return hmac.new(secret, b, hashlib.sha256).hexdigest()
 
+# 화이트리스트 로드/저장
 def load_whitelist():
     if not os.path.exists(config.WHITELIST_FILE):
         return []
     with open(config.WHITELIST_FILE, "r") as f:
         return json.load(f)
-
-
 def save_whitelist(wl):
     tmp = config.WHITELIST_FILE + ".tmp"
     with open(tmp, "w") as f:
@@ -160,7 +156,7 @@ def append_attack_log(entry):
     with open(config.ATTACK_LOG_FILE, "a") as f:
         f.write(line + "\n")
 
-
+# 요청 처리
 def handle_request(obj):
     t = obj.get("type")
     payload = obj.get("payload", {})
@@ -206,7 +202,7 @@ def handle_request(obj):
 
     return {"ok": False, "error": "unknown type"}
 
-
+# 클라이언트(conn)의 요청을 처리한 뒤 응답 
 def client_worker(conn):
     try:
         raw = read_prefixed(conn)
@@ -218,7 +214,7 @@ def client_worker(conn):
             send_prefixed(conn, {"ok": False, "error": "bad json"})
             return
 
-        # verify HMAC
+        # verify HMAC(검증)
         if "type" not in obj or "payload" not in obj or "hmac" not in obj:
             send_prefixed(conn, {"ok": False, "error": "invalid format"})
             return
@@ -232,7 +228,7 @@ def client_worker(conn):
     finally:
         conn.close()
 
-
+# SSH 탐지기
 def ssh_detector():
     while True:
         ssh_conns_new = get_ssh_connections()
