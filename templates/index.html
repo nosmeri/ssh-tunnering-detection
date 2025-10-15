@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Line Chart Demo</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            margin: 24px;
+        }
+
+        .wrap {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+    </style>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="wrap">
+        <h2>월별 공격량</h2>
+        <canvas id="lineChart" height="200"></canvas>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('lineChart');
+
+        const data = {
+            labels: [],
+            datasets: [
+                {
+                    label: '공격 ssh',
+                    data: [],
+                    fill: false,
+                    tension: 0.25,           // 선 곡률 (0=직선)
+                    borderWidth: 2,
+                }
+            ]
+        };
+
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data,
+            options: {
+                responsive: true,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} 회`
+                        }
+                    }
+                },
+                scales: {
+                    x: { title: { display: true, text: '시간' } },
+                    y: {
+                        title: { display: true, text: '회' },
+                        beginAtZero: true,
+                        ticks: { stepSize: 5 }
+                    }
+                }
+            }
+        });
+
+        async function reload() {
+            const response = await fetch('/getdata');
+            const resp_json = await response.json();
+            labels = resp_json["labels"];
+            datas = resp_json["datas"];
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = datas;
+            chart.update();
+            setTimeout(async () => {
+                reload()
+            }, 2000);
+        }
+
+        reload()
+    </script>
+</body>
+
+</html>

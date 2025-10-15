@@ -25,6 +25,21 @@ class Connections:
     latest_bytes: int = field(default=0, compare=False)
 
 
+def save_attack_log(attacks):
+    with open(config.ATTACK_LOG_FILE, "w") as f:
+        for atk in attacks:
+            line = json.dumps(asdict(atk), ensure_ascii=False)
+            f.write(line + "\n")
+
+def load_attack_log():
+    if not os.path.exists(config.ATTACK_LOG_FILE):
+        return []
+    attacks=[]
+    with open(config.ATTACK_LOG_FILE, "r") as f:
+        for i in f.readlines():
+            attacks.append(Connections(**json.loads(i)))
+    return attacks
+
 def get_ssh_connections():
     ssh_conns=[]
     conns = psutil.net_connections(kind="tcp")
@@ -52,7 +67,7 @@ def cal_score(conn):
         score += config.PORT_SCORE # 비표준 포트 점수
         
     if time.time()-conn.ts > config.MIN_TIME:
-        score += (time.time()-conn.ts)//60 * config.TIME_SCORE
+        score += (time.time()-conn.ts)/60 * config.TIME_SCORE
 
     if conn.cmdline and ("-R" in conn.cmdline or "-D" in conn.cmdline or "-L" in conn.cmdline):
         score += config.SSH_CON_SCORE # SSL 연결 방식 점수 
@@ -76,12 +91,6 @@ def process_packet(packet):
                 break
 
 
-
-
-
-
-
-
 def load_token():
     with open(config.TOKEN_FILE, "r") as f:
         return f.read().strip()
@@ -102,7 +111,6 @@ def prepare_socket():
     os.chown(config.SOCK_PATH, 0, 33)
     srv.listen(8)
     return srv
-
 
 
 def read_prefixed(conn):
@@ -187,7 +195,7 @@ def handle_request(obj):
 
     if t == "get_log":
         attacks=[]
-        for c in ssh_attack:
+        for c in ssh_attacks:
             attacks.append(asdict(c))
         
         return {"ok": True, "result": attacks}
@@ -225,7 +233,6 @@ def client_worker(conn):
         conn.close()
 
 
-
 def ssh_detector():
     while True:
         ssh_conns_new = get_ssh_connections()
@@ -248,17 +255,21 @@ def ssh_detector():
             score=cal_score(c)
             print(score)
             if score >=100:
-                ssh_attack.append(c)
+                if c not in ssh_attacks:
+                    ssh_attacks.append(c)
+        
+        save_attack_log(ssh_attacks)
 
         print(ssh_conns)
 
 
-
 if __name__ == "__main__":
+
+
     config=Config.load()
 
-    ssh_conns=[]
-    ssh_attack=[]
+    ssh_attacks=load_attack_log()
+    ssh_conns=ssh_attacks.copy()
 
     ssh_stats = {
         "total_connections": 0,
@@ -286,7 +297,6 @@ if __name__ == "__main__":
         srv.close()
         try: os.remove(config.SOCK_PATH)
         except: pass
-
 
 
 # 포트, 연결 지속, 데이터 량, -R -D -L

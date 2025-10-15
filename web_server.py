@@ -1,7 +1,12 @@
+from datetime import datetime, timedelta
 import socket, json, struct, hmac, hashlib, os, sys
+
+from fastapi.responses import HTMLResponse
 from config import Config
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from typing import List
+from fastapi.templating import Jinja2Templates
+import time
 
 config = Config.load()
 
@@ -97,6 +102,28 @@ def send(cmd, argv=[]):
 app = FastAPI()
 
 
-@app.post("/")
-def test(cmd: str):
-    return send(cmd)
+templates = Jinja2Templates(directory="./templates")
+
+
+@app.get("/")
+def main_page(request: Request):
+    return templates.TemplateResponse(request, "index.html")
+
+
+@app.get("/getdata")
+def get_data():
+    now = datetime.now()
+    attacks_ts=list(map(lambda x: x["ts"], send("log")["result"]))
+
+    labels=[]
+    datas=[]
+    for i in range(30, -1, -1):
+        t1 = now - timedelta(minutes=1 * (i+1))
+        t2 = now - timedelta(minutes=1 * i)
+        cnt=0
+        for at in attacks_ts:
+            if t1.timestamp() <= at < t2.timestamp():
+                cnt+=1
+        labels.append(f"{t1.strftime('%H:%M:%S')} ~ {t2.strftime('%H:%M:%S')}")
+        datas.append(cnt)
+    return {"labels":  labels, "datas":datas}
