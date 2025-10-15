@@ -22,12 +22,13 @@
 
 <body>
     <div class="wrap">
-        <h2>월별 공격량</h2>
+        <h2>시간별 공격량</h2>
         <canvas id="lineChart" height="200"></canvas>
     </div>
 
     <script>
         const ctx = document.getElementById('lineChart');
+
 
         const data = {
             labels: [],
@@ -41,6 +42,8 @@
                 }
             ]
         };
+        const maxY = Math.max(...data.datasets.flatMap(d => d.data)) * 1.2;
+
 
         const chart = new Chart(ctx, {
             type: 'line',
@@ -61,6 +64,7 @@
                     y: {
                         title: { display: true, text: '회' },
                         beginAtZero: true,
+                        suggestedMax: maxY,
                         ticks: { stepSize: 5 }
                     }
                 }
@@ -68,16 +72,19 @@
         });
 
         async function reload() {
-            const response = await fetch('/getdata');
-            const resp_json = await response.json();
-            labels = resp_json["labels"];
-            datas = resp_json["datas"];
-            chart.data.labels = labels;
-            chart.data.datasets[0].data = datas;
-            chart.update();
-            setTimeout(async () => {
-                reload()
-            }, 2000);
+            try {
+                const response = await fetch('/getdata');
+                const resp_json = await response.json();
+                labels = resp_json["labels"];
+                datas = resp_json["datas"];
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = datas;
+                chart.update();
+            } finally {
+                setTimeout(async () => {
+                    reload()
+                }, 2000);
+            }
         }
 
         reload()

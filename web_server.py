@@ -117,9 +117,9 @@ def get_data():
 
     labels=[]
     datas=[]
-    for i in range(30, -1, -1):
-        t1 = now - timedelta(minutes=1 * (i+1))
-        t2 = now - timedelta(minutes=1 * i)
+    for i in range(config.INTERFACE_DATA_COUNT, -1, -1):
+        t1 = now - timedelta(minutes=config.INTERFACE_TIME_INTERVAL_MINUTE * (i+1))
+        t2 = now - timedelta(minutes=config.INTERFACE_TIME_INTERVAL_MINUTE * i)
         cnt=0
         for at in attacks_ts:
             if t1.timestamp() <= at < t2.timestamp():

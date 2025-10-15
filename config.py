@@ -19,6 +19,9 @@ class Config:
     WHITELIST_FILE: str = "./whitelist.json"
     ATTACK_LOG_FILE: str = "./ssh_detector_attacks.log"
 
+    INTERFACE_TIME_INTERVAL_MINUTE: int = 10
+    INTERFACE_DATA_COUNT: int = 30
+
     @classmethod
     def load(cls, path: Path = CFG_PATH):
         if not path.exists():
