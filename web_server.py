@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta
+from re import I
 import socket, json, struct, hmac, hashlib, os, sys
 
 from fastapi.exceptions import HTTPException
 
 from config import Config
-from fastapi import FastAPI, Request
-from typing import List
+from fastapi import FastAPI, Query, Request
+from typing import List, Optional
 from fastapi.templating import Jinja2Templates
 import time
 
@@ -84,24 +85,6 @@ def get_stats():
     return send_request(req)
 
 
-def send(cmd, argv=[]):
-    if not os.path.exists(config.SOCK_PATH):
-        raise HTTPException(500, "detector not running")
-    # 간단 테스트 CLI
-    if cmd == "add" and len(argv) == 3:
-        return(whitelist_add(argv[2]))
-    elif cmd == "rm" and len(argv) == 3:
-        return(whitelist_remove(argv[2]))
-    elif cmd == "list":
-        return(list_whitelist())
-    elif cmd == "log":
-        return(get_log())
-    elif cmd == "stats":
-        return(get_stats())
-    else:
-        return("usage: add <ip> | rm <ip> | list | log | stats")
-
-
 app = FastAPI()
 
 
@@ -113,10 +96,10 @@ def main_page(request: Request):
     return templates.TemplateResponse(request, "index.html")
 
 
-@app.get("/getdata")
+@app.get("/api/get_logs")
 def get_data():
     now = datetime.now()
-    attacks_ts=list(map(lambda x: x["ts"], send("log")["result"]))
+    attacks_ts=list(map(lambda x: x["ts"], get_log()["result"]))
 
     labels=[]
     datas=[]
@@ -130,3 +113,26 @@ def get_data():
         labels.append(f"{t1.strftime('%H:%M:%S')} ~ {t2.strftime('%H:%M:%S')}")
         datas.append(cnt)
     return {"labels":  labels, "datas":datas}
+
+
+@app.get("/api/get_attacks")
+def get_attacks(limit: int = Query(100, gt=0, le=2000), query: Optional[str] = None):
+    attacks=get_log()["result"][-limit:]
+    if query:
+        q=query.lower()
+        filtered=[]
+        for i in attacks:
+            s = (
+                (str(i.get("laddr")) or "")
+                + ":"
+                + (str(i.get("lport")) or "")
+                + " "
+                + (str(i.get("raddr")) or "")
+                + ":"
+                + (str(i.get("rport")) or "")
+            )
+            if q in s.lower():
+                filtered.append(i)
+        attacks=filtered
+    
+    return attacks

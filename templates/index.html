@@ -7,13 +7,46 @@
     <title>Line Chart Demo</title>
     <style>
         body {
-            font-family: system-ui, sans-serif;
+            font-family: system-ui, Segoe UI, Roboto, Arial;
             margin: 24px;
         }
 
         .wrap {
             max-width: 800px;
             margin: 0 auto;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 12px
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            font-size: 13px
+        }
+
+        th {
+            background: #f6f6f6
+        }
+
+        tr:hover {
+            background: #fafafa
+        }
+
+        .muted {
+            color: #666;
+            font-size: 12px
         }
     </style>
     <!-- Chart.js CDN -->
@@ -25,6 +58,35 @@
         <h2>시간별 공격량</h2>
         <canvas id="lineChart" height="200"></canvas>
     </div>
+
+    <div class="controls">
+        <input id="q" placeholder="검색: IP 또는 이유" />
+        <button id="search">검색</button>
+        <label class="muted">갱신 간격</label>
+        <select id="interval">
+            <option value="0">수동</option>
+            <option value="5000">5s</option>
+            <option value="10000" selected>10s</option>
+            <option value="30000">30s</option>
+        </select>
+        <button id="refresh">갱신</button>
+        <div style="margin-left:auto"><span id="status" class="muted">idle</span></div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>시간</th>
+                <th>출발(src)</th>
+                <th>도착(dst)</th>
+                <th>이유</th>
+                <th>메타</th>
+            </tr>
+        </thead>
+        <tbody id="tb"></tbody>
+    </table>
+
+
 
     <script>
         const ctx = document.getElementById('lineChart');
@@ -73,7 +135,7 @@
 
         async function reload() {
             try {
-                const response = await fetch('/getdata');
+                const response = await fetch('/api/get_logs');
                 const resp_json = await response.json();
                 labels = resp_json["labels"];
                 datas = resp_json["datas"];
@@ -88,6 +150,69 @@
         }
 
         reload()
+
+
+
+
+        const tb = document.getElementById('tb');
+        const status = document.getElementById('status');
+        const qinput = document.getElementById('q');
+        const interval = document.getElementById('interval');
+
+        let timer = null;
+
+        async function fetchAttacks() {
+            status.textContent = 'loading...';
+            const q = qinput.value.trim();
+            const params = new URLSearchParams();
+            params.set('limit', 200);
+            if (q) params.set('query', q);
+            try {
+                const res = await fetch('/api/get_attacks?' + params.toString(), { cache: 'no-store' });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                renderTable(data);
+                status.textContent = `loaded ${data.length}`;
+            } catch (e) {
+                status.textContent = 'error: ' + (e.message || e);
+            }
+        }
+
+        function renderTable(items) {
+            tb.innerHTML = '';
+            if (!items.length) {
+                tb.innerHTML = '<tr><td colspan="5" class="muted">No entries</td></tr>';
+                return;
+            }
+            for (const it of items) {
+                const tr = document.createElement('tr');
+                const d = new Date((it.ts || Date.now()) * 1000);
+                const ts = d.toLocaleString();
+                const src = it.laddr + " : " + it.lport;
+                const dst = it.raddr + " : " + it.rport;
+                const reason = it.reason || '';
+                const meta = it.meta ? JSON.stringify(it.meta) : '';
+                tr.innerHTML = `<td>${ts}</td><td>${src}</td><td>${dst}</td><td>${escapeHtml(reason)}</td><td>${escapeHtml(meta)}</td>`;
+                tb.appendChild(tr);
+            }
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        }
+
+        document.getElementById('search').addEventListener('click', fetchAttacks);
+        document.getElementById('refresh').addEventListener('click', fetchAttacks);
+
+        interval.addEventListener('change', () => {
+            if (timer) { clearInterval(timer); timer = null; }
+            const val = Number(interval.value);
+            if (val > 0) { timer = setInterval(fetchAttacks, val); }
+        });
+
+        // 초기 로드
+        fetchAttacks();
+
     </script>
 </body>
 

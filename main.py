@@ -104,8 +104,8 @@ def prepare_socket():
         os.remove(config.SOCK_PATH)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(config.SOCK_PATH)
-    os.chmod(config.SOCK_PATH, 0o666)  # root:group read/write
-    os.chown(config.SOCK_PATH, 0, 33)
+    os.chmod(config.SOCK_PATH, 0o660)  # root:group read/write
+    os.chown(config.SOCK_PATH, 1000, 1000)
     srv.listen(8)
     return srv
 
