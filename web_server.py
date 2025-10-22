@@ -1,14 +1,30 @@
+import hashlib
+import hmac
+import json
+import os
+import socket
+import struct
+import sys
+import time
 from datetime import datetime, timedelta
+from enum import Enum
 from re import I
-import socket, json, struct, hmac, hashlib, os, sys
+from typing import Dict, Optional
 
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import HTTPException
+from fastapi.templating import Jinja2Templates
 
 from config import Config
-from fastapi import FastAPI, Query, Request
-from typing import List, Optional
-from fastapi.templating import Jinja2Templates
-import time
+
+
+class RequestType(Enum):
+    ADD_WHITELIST = "whitelist_add"
+    REMOVE_WHITELIST = "whitelist_remove"
+    LIST_WHITELIST = "list_whitelist"
+    GET_LOG = "get_log"
+    GET_STATS = "get_stats"
+
 
 config = Config.load()
 
@@ -49,39 +65,12 @@ def send_request(obj):
     return json.loads(data.decode())
 
 
-# helpers
-def whitelist_add(ip):
-    tp = "whitelist_add"
-    payload = {"ip": ip}
-    req = {"type": tp, "payload": payload, "hmac": compute_hmac(tp, payload)}
-    return send_request(req)
-
-
-def whitelist_remove(ip):
-    tp = "whitelist_remove"
-    payload = {"ip": ip}
-    req = {"type": tp, "payload": payload, "hmac": compute_hmac(tp, payload)}
-    return send_request(req)
-
-
-def list_whitelist():
-    tp = "list_whitelist"
-    payload = {}
-    req = {"type": tp, "payload": payload, "hmac": compute_hmac(tp, payload)}
-    return send_request(req)
-
-
-def get_log():
-    tp = "get_log"
-    payload = {}
-    req = {"type": tp, "payload": payload, "hmac": compute_hmac(tp, payload)}
-    return send_request(req)
-
-
-def get_stats():
-    tp = "get_stats"
-    payload = {}
-    req = {"type": tp, "payload": payload, "hmac": compute_hmac(tp, payload)}
+def generic_api_request(type_: RequestType, payload: Dict = {}):
+    req = {
+        "type": type_.value,
+        "payload": payload,
+        "hmac": compute_hmac(type_.value, payload),
+    }
     return send_request(req)
 
 
@@ -99,28 +88,30 @@ def main_page(request: Request):
 @app.get("/api/get_logs")
 def get_data():
     now = datetime.now()
-    attacks_ts=list(map(lambda x: x["ts"], get_log()["result"]))
+    attacks_ts = list(
+        map(lambda x: x["ts"], generic_api_request(RequestType.GET_LOG)["result"])
+    )
 
-    labels=[]
-    datas=[]
+    labels = []
+    datas = []
     for i in range(config.INTERFACE_DATA_COUNT, -1, -1):
-        t1 = now - timedelta(minutes=config.INTERFACE_TIME_INTERVAL_MINUTE * (i+1))
+        t1 = now - timedelta(minutes=config.INTERFACE_TIME_INTERVAL_MINUTE * (i + 1))
         t2 = now - timedelta(minutes=config.INTERFACE_TIME_INTERVAL_MINUTE * i)
-        cnt=0
+        cnt = 0
         for at in attacks_ts:
             if t1.timestamp() <= at < t2.timestamp():
-                cnt+=1
+                cnt += 1
         labels.append(f"{t1.strftime('%H:%M:%S')} ~ {t2.strftime('%H:%M:%S')}")
         datas.append(cnt)
-    return {"labels":  labels, "datas":datas}
+    return {"labels": labels, "datas": datas}
 
 
 @app.get("/api/get_attacks")
 def get_attacks(limit: int = Query(100, gt=0, le=2000), query: Optional[str] = None):
-    attacks=get_log()["result"][-limit:]
+    attacks = generic_api_request(RequestType.GET_LOG)["result"][-limit:]
     if query:
-        q=query.lower()
-        filtered=[]
+        q = query.lower()
+        filtered = []
         for i in attacks:
             s = (
                 (str(i.get("laddr")) or "")
@@ -133,6 +124,21 @@ def get_attacks(limit: int = Query(100, gt=0, le=2000), query: Optional[str] = N
             )
             if q in s.lower():
                 filtered.append(i)
-        attacks=filtered
-    
+        attacks = filtered
+
     return attacks
+
+
+@app.get("/api/get_whitelist")
+def get_whitelist():
+    return generic_api_request(RequestType.LIST_WHITELIST)
+
+
+@app.post("/api/add_whitelist")
+def add_whitelist(ip: str):
+    return generic_api_request(RequestType.ADD_WHITELIST, {"ip": ip})
+
+
+@app.post("/api/remove_whitelist")
+def remove_whitelist(ip: str):
+    return generic_api_request(RequestType.REMOVE_WHITELIST, {"ip": ip})

@@ -1,16 +1,19 @@
-from dataclasses import asdict, dataclass, field
-import psutil
-from scapy.all import TCP, sniff
-import time
-from config import Config
-import socket
-import threading
-import hmac
 import hashlib
+import hmac
 import json
 import os
+import socket
 import struct
-from typing import Dict, Any
+import threading
+import time
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict
+
+import psutil
+from scapy.all import TCP, sniff
+
+from config import Config
+
 
 @dataclass()
 class Connections:
@@ -31,21 +34,23 @@ def save_attack_log(attacks):
             line = json.dumps(asdict(atk), ensure_ascii=False)
             f.write(line + "\n")
 
+
 def load_attack_log():
     if not os.path.exists(config.ATTACK_LOG_FILE):
         return []
-    attacks=[]
+    attacks = []
     with open(config.ATTACK_LOG_FILE, "r") as f:
         for i in f.readlines():
             attacks.append(Connections(**json.loads(i)))
     return attacks
 
+
 def get_ssh_connections():
-    ssh_conns=[]
+    ssh_conns = []
     conns = psutil.net_connections(kind="tcp")
     for c in conns:
         if c.status == psutil.CONN_ESTABLISHED:
-            if c.pid==None:
+            if c.pid == None:
                 continue
             try:
                 process = psutil.Process(c.pid)
@@ -57,7 +62,14 @@ def get_ssh_connections():
             if c.raddr.ip in load_whitelist():
                 continue
             ssh_conns.append(
-                Connections(c.laddr.ip, c.laddr.port, c.raddr.ip, c.raddr.port, c.pid, process.cmdline())
+                Connections(
+                    c.laddr.ip,
+                    c.laddr.port,
+                    c.raddr.ip,
+                    c.raddr.port,
+                    c.pid,
+                    process.cmdline(),
+                )
             )
     return ssh_conns
 
@@ -65,20 +77,23 @@ def get_ssh_connections():
 def cal_score(conn):
     score = 0
 
-    if conn.lport !=22 and conn.rport !=22:
-        score += config.PORT_SCORE # 비표준 포트 점수
-        
-    if time.time()-conn.ts > config.MIN_TIME:
-        score += (time.time()-conn.ts)/60 * config.TIME_SCORE
+    if conn.lport != 22 and conn.rport != 22:
+        score += config.PORT_SCORE  # 비표준 포트 점수
 
-    if conn.cmdline and ("-R" in conn.cmdline or "-D" in conn.cmdline or "-L" in conn.cmdline):
-        score += config.SSH_CON_SCORE # SSL 연결 방식 점수 
+    if time.time() - conn.ts > config.MIN_TIME:
+        score += (time.time() - conn.ts) / 60 * config.TIME_SCORE
+
+    if conn.cmdline and (
+        "-R" in conn.cmdline or "-D" in conn.cmdline or "-L" in conn.cmdline
+    ):
+        score += config.SSH_CON_SCORE  # SSL 연결 방식 점수
 
     score += (
         (conn.latest_bytes // (1024 * 1024))
-        * (time.time() - conn.ts) // 60
+        * (time.time() - conn.ts)
+        // 60
         * config.DATA_SCORE
-    ) # 데이터량 점수
+    )  # 데이터량 점수
 
     return score
 
@@ -86,11 +101,14 @@ def cal_score(conn):
 def process_packet(packet):
     if packet.haslayer(TCP):
         for c in ssh_conns:
-            if (packet[TCP].sport == c.lport and packet[TCP].dport == c.rport) or (packet[TCP].dport == c.lport and packet[TCP].sport == c.rport):
+            if (packet[TCP].sport == c.lport and packet[TCP].dport == c.rport) or (
+                packet[TCP].dport == c.lport and packet[TCP].sport == c.rport
+            ):
                 c.bytes += len(packet)
                 c.latest_bytes += len(packet)
                 # print(f"Packet: {packet[IP].src}:{packet[TCP].sport} -> {packet[IP].dst}:{packet[TCP].dport}, Size: {len(packet)}")
                 break
+
 
 # 토큰 로드
 def load_token():
@@ -98,7 +116,7 @@ def load_token():
         return f.read().strip()
 
 
-#소켓 준비
+# 소켓 준비
 def prepare_socket():
     if os.path.exists(config.SOCK_PATH):
         os.remove(config.SOCK_PATH)
@@ -108,6 +126,7 @@ def prepare_socket():
     os.chown(config.SOCK_PATH, 1000, 1000)
     srv.listen(8)
     return srv
+
 
 # 길이 접두사가 있는 데이터 읽기/쓰기
 def read_prefixed(conn):
@@ -122,9 +141,12 @@ def read_prefixed(conn):
             break
         data += chunk
     return data
+
+
 def send_prefixed(conn, obj):
     b = json.dumps(obj, ensure_ascii=False).encode()
     conn.sendall(struct.pack(">I", len(b)) + b)
+
 
 # HMAC 계산
 def compute_hmac_for(obj: Dict[str, Any]) -> str:
@@ -140,6 +162,8 @@ def load_whitelist():
         return []
     with open(config.WHITELIST_FILE, "r") as f:
         return json.load(f)
+
+
 def save_whitelist(wl):
     tmp = config.WHITELIST_FILE + ".tmp"
     with open(tmp, "w") as f:
@@ -153,6 +177,7 @@ def append_attack_log(entry):
     line = json.dumps(entry, ensure_ascii=False)
     with open(config.ATTACK_LOG_FILE, "a") as f:
         f.write(line + "\n")
+
 
 # 요청 처리
 def handle_request(obj):
@@ -188,10 +213,10 @@ def handle_request(obj):
         return {"ok": True, "result": wl}
 
     if t == "get_log":
-        attacks=[]
+        attacks = []
         for c in ssh_attacks:
             attacks.append(asdict(c))
-        
+
         return {"ok": True, "result": attacks}
 
     if t == "get_stats":
@@ -200,7 +225,8 @@ def handle_request(obj):
 
     return {"ok": False, "error": "unknown type"}
 
-# 클라이언트(conn)의 요청을 처리한 뒤 응답 
+
+# 클라이언트(conn)의 요청을 처리한 뒤 응답
 def client_worker(conn):
     try:
         raw = read_prefixed(conn)
@@ -226,15 +252,17 @@ def client_worker(conn):
     finally:
         conn.close()
 
+
 # SSH 탐지기
 def ssh_detector():
     while True:
         ssh_conns_new = get_ssh_connections()
 
-        for c in ssh_conns:
+        for i in range(len(ssh_conns) - 1, -1, -1):
+            c = ssh_conns[i]
             c.latest_bytes = 0
             if c not in ssh_conns_new:
-                ssh_conns.remove(c)
+                ssh_conns.pop(i)
 
         for c in ssh_conns_new:
             c.latest_bytes = 0
@@ -246,12 +274,12 @@ def ssh_detector():
         time.sleep(1)
 
         for c in ssh_conns:
-            score=cal_score(c)
+            score = cal_score(c)
             print(score)
-            if score >=100:
+            if score >= 100:
                 if c not in ssh_attacks:
                     ssh_attacks.append(c)
-        
+
         save_attack_log(ssh_attacks)
 
         print(ssh_conns)
@@ -259,11 +287,10 @@ def ssh_detector():
 
 if __name__ == "__main__":
 
+    config = Config.load()
 
-    config=Config.load()
-
-    ssh_attacks=load_attack_log()
-    ssh_conns=ssh_attacks.copy()
+    ssh_attacks = load_attack_log()
+    ssh_conns = ssh_attacks.copy()
 
     ssh_stats = {
         "total_connections": 0,
@@ -280,7 +307,7 @@ if __name__ == "__main__":
 
     srv = prepare_socket()
 
-    print("연결 대기중..")
+    print("스캔 시작.")
 
     try:
         while True:
@@ -289,8 +316,10 @@ if __name__ == "__main__":
             t.start()
     finally:
         srv.close()
-        try: os.remove(config.SOCK_PATH)
-        except: pass
+        try:
+            os.remove(config.SOCK_PATH)
+        except:
+            pass
 
 
 # 포트, 연결 지속, 데이터 량, -R -D -L
