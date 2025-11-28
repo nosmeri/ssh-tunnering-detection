@@ -81,17 +81,20 @@ def main_page(request: Request):
 
 
 @app.get("/api/get_logs")
-def get_data():
+def get_data(interval: int = Query(None, gt=0)):
     now = datetime.now()
     attacks_ts = list(
         map(lambda x: x["ts"], generic_api_request(RequestType.GET_LOG)["result"])
     )
 
+    # Use provided interval or default from config
+    time_interval = interval if interval else config.INTERFACE_TIME_INTERVAL_MINUTE
+
     labels = []
     datas = []
     for i in range(config.INTERFACE_DATA_COUNT, -1, -1):
-        t1 = now - timedelta(minutes=config.INTERFACE_TIME_INTERVAL_MINUTE * (i + 1))
-        t2 = now - timedelta(minutes=config.INTERFACE_TIME_INTERVAL_MINUTE * i)
+        t1 = now - timedelta(minutes=time_interval * (i + 1))
+        t2 = now - timedelta(minutes=time_interval * i)
         cnt = 0
         for at in attacks_ts:
             if t1.timestamp() <= at < t2.timestamp():

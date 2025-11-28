@@ -275,6 +275,15 @@
                     <div id="connection-dot" class="status-dot"></div>
                     <span id="status">Connecting...</span>
                 </div>
+                <div style="margin-left: 20px;">
+                    <select id="graph-interval" style="padding: 4px 8px; font-size: 0.8rem;">
+                        <option value="1">1 Min</option>
+                        <option value="5">5 Min</option>
+                        <option value="10" selected>10 Min</option>
+                        <option value="30">30 Min</option>
+                        <option value="60">1 Hour</option>
+                    </select>
+                </div>
             </div>
             <div style="height: 250px;">
                 <canvas id="lineChart"></canvas>
@@ -286,7 +295,14 @@
             <div class="card-header">
                 <h2>Detected Attacks</h2>
                 <div class="controls">
-                    <input id="q" placeholder="Search IP or Reason..." style="width: 200px;" />
+                    <input id="q" placeholder="Search IP or Port..." style="width: 200px;" />
+                    <select id="limit" style="width: 80px;">
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200" selected>200</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                    </select>
                     <select id="interval">
                         <option value="0">Manual</option>
                         <option value="5000">5s</option>
@@ -417,10 +433,12 @@
         // --- Data Fetching ---
         const statusEl = document.getElementById('status');
         const dotEl = document.getElementById('connection-dot');
+        const graphIntervalEl = document.getElementById('graph-interval');
 
         async function reloadChart() {
             try {
-                const response = await fetch('/api/get_logs');
+                const interval = graphIntervalEl.value;
+                const response = await fetch(`/api/get_logs?interval=${interval}`);
                 const data = await response.json();
                 chart.data.labels = data.labels;
                 chart.data.datasets[0].data = data.datas;
@@ -434,17 +452,25 @@
                 setTimeout(reloadChart, 2000);
             }
         }
+
+        graphIntervalEl.addEventListener('change', () => {
+            // Immediate reload when interval changes
+            reloadChart();
+        });
+
         reloadChart();
 
         // --- Attacks Table ---
         const tb = document.getElementById('tb');
         const qinput = document.getElementById('q');
         const interval = document.getElementById('interval');
+        const limitSelect = document.getElementById('limit');
         let timer = null;
 
         async function fetchAttacks() {
             const q = qinput.value.trim();
-            const params = new URLSearchParams({ limit: 200 });
+            const limit = limitSelect.value;
+            const params = new URLSearchParams({ limit: limit });
             if (q) params.set('query', q);
 
             try {
@@ -504,6 +530,11 @@
             } else {
                 showToast('Auto-refresh disabled');
             }
+        });
+
+        limitSelect.addEventListener('change', () => {
+            fetchAttacks();
+            showToast(`Limit set to ${limitSelect.value}`);
         });
 
         // Start with auto-refresh
