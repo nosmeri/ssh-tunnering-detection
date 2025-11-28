@@ -1,198 +1,481 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" class="dark">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Line Chart Demo</title>
+    <title>SSH Tunneling Detector</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
     <style>
+        :root {
+            --bg-body: #0f172a;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --primary: #10b981;
+            /* Emerald 500 */
+            --primary-hover: #059669;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --font-main: 'Inter', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: system-ui, Segoe UI, Roboto, Arial;
-            margin: 24px;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
         }
 
-        .wrap {
-            max-width: 800px;
+        /* Layout */
+        .container {
+            max-width: 1200px;
             margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
         }
 
+        @media (min-width: 1024px) {
+            .container {
+                grid-template-columns: 2fr 1fr;
+            }
+
+            .full-width {
+                grid-column: 1 / -1;
+            }
+        }
+
+        /* Components */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        /* Controls */
         .controls {
             display: flex;
-            gap: 8px;
+            gap: 10px;
+            flex-wrap: wrap;
             align-items: center;
-            margin-bottom: 12px
+        }
+
+        input,
+        select {
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: var(--font-main);
+            font-size: 0.875rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: var(--primary);
+        }
+
+        button {
+            background: var(--bg-hover);
+            color: var(--text-main);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: var(--border);
+        }
+
+        button.primary {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        button.primary:hover {
+            background: var(--primary-hover);
+        }
+
+        button.danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        button.danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        /* Tables */
+        .table-container {
+            overflow-x: auto;
         }
 
         table {
+            width: 100%;
             border-collapse: collapse;
-            width: 100%
-        }
-
-        th,
-        td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-            font-size: 13px
+            font-size: 0.875rem;
         }
 
         th {
-            background: #f6f6f6
+            text-align: left;
+            padding: 12px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            font-weight: 500;
         }
 
-        tr:hover {
-            background: #fafafa
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-mono);
         }
 
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-muted);
+        }
+
+        .status-dot.active {
+            background-color: var(--primary);
+            box-shadow: 0 0 8px var(--primary);
+        }
+
+        .status-dot.error {
+            background-color: var(--danger);
+        }
+
+        /* Utilities */
         .muted {
-            color: #666;
-            font-size: 12px
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .flex-grow {
+            flex-grow: 1;
+        }
+
+        .mb-4 {
+            margin-bottom: 1rem;
+        }
+
+        /* Toast */
+        #toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            animation: slideIn 0.3s ease-out;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
         }
     </style>
-    <!-- Chart.js CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
-    <div class="wrap">
-        <h2>시간별 공격량</h2>
-        <canvas id="lineChart" height="200"></canvas>
+    <div class="container">
+        <!-- Header / Stats -->
+        <div class="card full-width">
+            <div class="card-header">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                        <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                        <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                    </svg>
+                    <h2>SSH Tunneling Detector</h2>
+                </div>
+                <div class="status-badge">
+                    <div id="connection-dot" class="status-dot"></div>
+                    <span id="status">Connecting...</span>
+                </div>
+            </div>
+            <div style="height: 250px;">
+                <canvas id="lineChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Attack Logs -->
+        <div class="card full-width">
+            <div class="card-header">
+                <h2>Detected Attacks</h2>
+                <div class="controls">
+                    <input id="q" placeholder="Search IP or Reason..." style="width: 200px;" />
+                    <select id="interval">
+                        <option value="0">Manual</option>
+                        <option value="5000">5s</option>
+                        <option value="10000" selected>10s</option>
+                        <option value="30000">30s</option>
+                    </select>
+                    <button id="refresh" class="primary">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tb"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Whitelist -->
+        <div class="card full-width">
+            <div class="card-header">
+                <h2>Whitelist Management</h2>
+                <div class="controls">
+                    <input id="whitelist_ip" placeholder="IP Address (e.g. 192.168.1.1)" style="width: 250px;" />
+                    <button id="add_whitelist" class="primary">Add IP</button>
+                    <button id="refresh_whitelist">Refresh List</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>IP Address</th>
+                            <th style="width: 100px; text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="whitelist_tb"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
-    <div class="controls">
-        <input id="q" placeholder="검색: IP 또는 이유" />
-        <button id="search">검색</button>
-        <label class="muted">갱신 간격</label>
-        <select id="interval">
-            <option value="0">수동</option>
-            <option value="5000">5s</option>
-            <option value="10000" selected>10s</option>
-            <option value="30000">30s</option>
-        </select>
-        <button id="refresh">갱신</button>
-        <div style="margin-left:auto"><span id="status" class="muted">idle</span></div>
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>시간</th>
-                <th>출발(src)</th>
-                <th>도착(dst)</th>
-                <th>이유</th>
-                <th>메타</th>
-            </tr>
-        </thead>
-        <tbody id="tb"></tbody>
-    </table>
-
-
+    <div id="toast-container"></div>
 
     <script>
+        // --- Theme & Chart Setup ---
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.borderColor = '#334155';
+
         const ctx = document.getElementById('lineChart');
-
-
-        const data = {
-            labels: [],
-            datasets: [
-                {
-                    label: '공격 ssh',
-                    data: [],
-                    fill: false,
-                    tension: 0.25,           // 선 곡률 (0=직선)
-                    borderWidth: 2,
-                }
-            ]
-        };
-        const maxY = Math.max(...data.datasets.flatMap(d => d.data)) * 1.2;
-
-
         const chart = new Chart(ctx, {
             type: 'line',
-            data,
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'SSH Attacks',
+                    data: [],
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    borderWidth: 2,
+                    pointBackgroundColor: '#10b981',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                }]
+            },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 interaction: { intersect: false, mode: 'index' },
                 plugins: {
-                    legend: { position: 'top' },
+                    legend: { display: false },
                     tooltip: {
+                        backgroundColor: '#1e293b',
+                        titleColor: '#f1f5f9',
+                        bodyColor: '#94a3b8',
+                        borderColor: '#334155',
+                        borderWidth: 1,
+                        padding: 10,
+                        displayColors: false,
                         callbacks: {
-                            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} 회`
+                            label: (ctx) => `${ctx.parsed.y} Detections`
                         }
                     }
                 },
                 scales: {
-                    x: { title: { display: true, text: '시간' } },
+                    x: { grid: { display: false } },
                     y: {
-                        title: { display: true, text: '회' },
                         beginAtZero: true,
-                        suggestedMax: maxY,
-                        ticks: { stepSize: 5 }
+                        grid: { borderDash: [4, 4] },
+                        ticks: { stepSize: 1 }
                     }
                 }
             }
         });
 
-        async function reload() {
-            try {
-                const response = await fetch('/api/get_logs');
-                const resp_json = await response.json();
-                labels = resp_json["labels"];
-                datas = resp_json["datas"];
-                chart.data.labels = labels;
-                chart.data.datasets[0].data = datas;
-                chart.update();
-            } finally {
-                setTimeout(async () => {
-                    reload()
-                }, 2000);
-            }
+        // --- Toast System ---
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = `
+                <div style="width:8px;height:8px;border-radius:50%;background:${type === 'error' ? '#ef4444' : '#10b981'}"></div>
+                <span>${msg}</span>
+            `;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transform = 'translateX(100%)';
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
         }
 
-        reload()
+        // --- Data Fetching ---
+        const statusEl = document.getElementById('status');
+        const dotEl = document.getElementById('connection-dot');
 
+        async function reloadChart() {
+            try {
+                const response = await fetch('/api/get_logs');
+                const data = await response.json();
+                chart.data.labels = data.labels;
+                chart.data.datasets[0].data = data.datas;
+                chart.update();
+                dotEl.className = 'status-dot active';
+                statusEl.textContent = 'Live';
+            } catch (e) {
+                dotEl.className = 'status-dot error';
+                statusEl.textContent = 'Connection Lost';
+            } finally {
+                setTimeout(reloadChart, 2000);
+            }
+        }
+        reloadChart();
 
-
-
+        // --- Attacks Table ---
         const tb = document.getElementById('tb');
-        const status = document.getElementById('status');
         const qinput = document.getElementById('q');
         const interval = document.getElementById('interval');
-
         let timer = null;
 
         async function fetchAttacks() {
-            status.textContent = 'loading...';
             const q = qinput.value.trim();
-            const params = new URLSearchParams();
-            params.set('limit', 200);
+            const params = new URLSearchParams({ limit: 200 });
             if (q) params.set('query', q);
+
             try {
                 const res = await fetch('/api/get_attacks?' + params.toString(), { cache: 'no-store' });
                 if (!res.ok) throw new Error(await res.text());
                 const data = await res.json();
                 renderTable(data);
-                status.textContent = `loaded ${data.length}`;
             } catch (e) {
-                status.textContent = 'error: ' + (e.message || e);
+                showToast('Failed to fetch attacks: ' + e.message, 'error');
             }
         }
 
         function renderTable(items) {
             tb.innerHTML = '';
             if (!items.length) {
-                tb.innerHTML = '<tr><td colspan="5" class="muted">No entries</td></tr>';
+                tb.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 20px;" class="muted">No attacks detected yet</td></tr>';
                 return;
             }
-            for (const it of items) {
+            // Reverse to show newest first if not already
+            const sorted = [...items].reverse();
+
+            for (const it of sorted) {
                 const tr = document.createElement('tr');
                 const d = new Date((it.ts || Date.now()) * 1000);
-                const ts = d.toLocaleString();
-                const src = it.laddr + " : " + it.lport;
-                const dst = it.raddr + " : " + it.rport;
-                const reason = it.reason || '';
-                const meta = it.meta ? JSON.stringify(it.meta) : '';
-                tr.innerHTML = `<td>${ts}</td><td>${src}</td><td>${dst}</td><td>${escapeHtml(reason)}</td><td>${escapeHtml(meta)}</td>`;
+                const ts = d.toLocaleTimeString();
+
+                tr.innerHTML = `
+                    <td class="muted">${ts}</td>
+                    <td style="color:#60a5fa">${it.laddr}:${it.lport}</td>
+                    <td style="color:#a78bfa">${it.raddr}:${it.rport}</td>
+                `;
                 tb.appendChild(tr);
             }
         }
@@ -201,18 +484,113 @@
             return String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
         }
 
-        document.getElementById('search').addEventListener('click', fetchAttacks);
-        document.getElementById('refresh').addEventListener('click', fetchAttacks);
+        document.getElementById('refresh').addEventListener('click', () => {
+            fetchAttacks();
+            showToast('Attacks list refreshed');
+        });
+
+
+
+        qinput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') fetchAttacks();
+        });
 
         interval.addEventListener('change', () => {
             if (timer) { clearInterval(timer); timer = null; }
             const val = Number(interval.value);
-            if (val > 0) { timer = setInterval(fetchAttacks, val); }
+            if (val > 0) {
+                timer = setInterval(fetchAttacks, val);
+                showToast(`Auto-refresh set to ${val / 1000}s`);
+            } else {
+                showToast('Auto-refresh disabled');
+            }
         });
 
-        // 초기 로드
+        // Start with auto-refresh
+        timer = setInterval(fetchAttacks, 10000);
         fetchAttacks();
 
+        // --- Whitelist ---
+        const whitelistTb = document.getElementById('whitelist_tb');
+        const whitelistIpInput = document.getElementById('whitelist_ip');
+
+        async function fetchWhitelist() {
+            try {
+                // Add cache: 'no-store' to prevent browser caching
+                const res = await fetch('/api/get_whitelist', { cache: 'no-store' });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Failed to fetch whitelist');
+                renderWhitelistTable(data.result || []);
+            } catch (e) {
+                showToast('Failed to fetch whitelist: ' + e.message, 'error');
+            }
+        }
+
+        function renderWhitelistTable(items) {
+            whitelistTb.innerHTML = '';
+            if (!items.length) {
+                whitelistTb.innerHTML = '<tr><td colspan="2" style="text-align:center;" class="muted">Whitelist is empty</td></tr>';
+                return;
+            }
+            for (const ip of items) {
+                const tr = document.createElement('tr');
+                const ipEscaped = escapeHtml(ip);
+                tr.innerHTML = `
+                    <td style="font-family:var(--font-mono)">${ipEscaped}</td>
+                    <td style="text-align:right">
+                        <button class="danger remove-btn" data-ip="${ipEscaped}" style="padding:4px 10px; font-size:0.75rem">Remove</button>
+                    </td>
+                `;
+                tr.querySelector('.remove-btn').addEventListener('click', () => removeWhitelist(ip));
+                whitelistTb.appendChild(tr);
+            }
+        }
+
+        async function addWhitelist() {
+            const ip = whitelistIpInput.value.trim();
+            if (!ip) return showToast('Please enter an IP address', 'error');
+
+            try {
+                const res = await fetch('/api/add_whitelist?ip=' + encodeURIComponent(ip), { method: 'POST' });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Failed to add IP');
+
+                await fetchWhitelist();
+                whitelistIpInput.value = '';
+                showToast(`IP ${ip} added to whitelist`);
+                fetchAttacks();
+            } catch (e) {
+                showToast('Error adding IP: ' + e.message, 'error');
+            }
+        }
+
+        async function removeWhitelist(ip) {
+            if (!confirm(`Remove ${ip} from whitelist?`)) return;
+            try {
+                const res = await fetch('/api/remove_whitelist?ip=' + encodeURIComponent(ip), { method: 'POST' });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Failed to remove IP');
+
+                await fetchWhitelist();
+                showToast(`IP ${ip} removed from whitelist`);
+            } catch (e) {
+                showToast('Error removing IP: ' + e.message, 'error');
+            }
+        }
+
+        document.getElementById('add_whitelist').addEventListener('click', addWhitelist);
+        document.getElementById('refresh_whitelist').addEventListener('click', () => {
+            fetchWhitelist();
+            showToast('Whitelist refreshed');
+        });
+        whitelistIpInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addWhitelist();
+        });
+
+        fetchWhitelist();
     </script>
 </body>
 

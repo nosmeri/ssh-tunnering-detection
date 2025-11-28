@@ -130,10 +130,10 @@ def get_whitelist():
 
 
 @app.post("/api/add_whitelist")
-def add_whitelist(ip: str):
+def add_whitelist(ip: str = Query(...)):
     return generic_api_request(RequestType.ADD_WHITELIST, {"ip": ip})
 
 
 @app.post("/api/remove_whitelist")
-def remove_whitelist(ip: str):
+def remove_whitelist(ip: str = Query(...)):
     return generic_api_request(RequestType.REMOVE_WHITELIST, {"ip": ip})

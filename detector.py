@@ -26,6 +26,8 @@ class Connections:
     ts: float = field(default_factory=time.time, compare=False)
     bytes: int = field(default=0, compare=False)
     latest_bytes: int = field(default=0, compare=False)
+    small_pkt_count: int = field(default=0, compare=False)
+    large_pkt_count: int = field(default=0, compare=False)
 
 
 def save_attack_log(attacks):
@@ -80,32 +82,52 @@ def cal_score(conn):
     if conn.lport != 22 and conn.rport != 22:
         score += config.PORT_SCORE  # 비표준 포트 점수
 
-    if time.time() - conn.ts > config.MIN_TIME:
-        score += (time.time() - conn.ts) / 60 * config.TIME_SCORE
+    duration = time.time() - conn.ts
+    if duration > config.MIN_TIME:
+        # 시간 점수를 비선형으로 증가 (로그 스케일 등 고려 가능하나 일단 선형 유지하되 가중치 조절)
+        score += (duration / 60) * config.TIME_SCORE
 
     if conn.cmdline and (
         "-R" in conn.cmdline or "-D" in conn.cmdline or "-L" in conn.cmdline
     ):
         score += config.SSH_CON_SCORE  # SSL 연결 방식 점수
 
+    # 데이터량 점수
     score += (
         (conn.latest_bytes // (1024 * 1024))
-        * (time.time() - conn.ts)
+        * duration
         // 60
         * config.DATA_SCORE
-    )  # 데이터량 점수
+    )
+
+    # 휴리스틱: 패킷 크기 분석
+    # 작은 패킷이 많으면 인터랙티브 터널링 가능성 (Shell 등)
+    if conn.small_pkt_count > 20: # 임계값
+        score += config.INTERACTIVE_SCORE * (conn.small_pkt_count / 10)
+    
+    # 큰 패킷이 많으면 벌크 전송 터널링 가능성 (SCP, Port Forwarding 등)
+    if conn.large_pkt_count > 5: # 임계값
+        score += config.BULK_SCORE * (conn.large_pkt_count / 5)
 
     return score
 
 
 def process_packet(packet):
     if packet.haslayer(TCP):
+        pkt_len = len(packet)
         for c in ssh_conns:
             if (packet[TCP].sport == c.lport and packet[TCP].dport == c.rport) or (
                 packet[TCP].dport == c.lport and packet[TCP].sport == c.rport
             ):
-                c.bytes += len(packet)
-                c.latest_bytes += len(packet)
+                c.bytes += pkt_len
+                c.latest_bytes += pkt_len
+                
+                # 패킷 크기 분류
+                if pkt_len < 100:
+                    c.small_pkt_count += 1
+                elif pkt_len > 1000:
+                    c.large_pkt_count += 1
+                    
                 # print(f"Packet: {packet[IP].src}:{packet[TCP].sport} -> {packet[IP].dst}:{packet[TCP].dport}, Size: {len(packet)}")
                 break
 
@@ -184,7 +206,7 @@ def handle_request(obj):
     t = obj.get("type")
     payload = obj.get("payload", {})
     if t == "whitelist_add":
-        ip = payload.get("ip")
+        ip = payload.get("ip").strip()
         if not ip:
             return {"ok": False, "error": "missing ip"}
         with wl_lock:
@@ -196,7 +218,7 @@ def handle_request(obj):
         return {"ok": True, "result": "added"}
 
     if t == "whitelist_remove":
-        ip = payload.get("ip")
+        ip = payload.get("ip").strip()
         if not ip:
             return {"ok": False, "error": "missing ip"}
         with wl_lock:
@@ -214,7 +236,11 @@ def handle_request(obj):
 
     if t == "get_log":
         attacks = []
+        with wl_lock:
+            wl = load_whitelist()
         for c in ssh_attacks:
+            if c.laddr in wl or c.raddr in wl:
+                continue
             attacks.append(asdict(c))
 
         return {"ok": True, "result": attacks}
@@ -261,11 +287,15 @@ def ssh_detector():
         for i in range(len(ssh_conns) - 1, -1, -1):
             c = ssh_conns[i]
             c.latest_bytes = 0
+            c.small_pkt_count = 0
+            c.large_pkt_count = 0
             if c not in ssh_conns_new:
                 ssh_conns.pop(i)
 
         for c in ssh_conns_new:
             c.latest_bytes = 0
+            c.small_pkt_count = 0
+            c.large_pkt_count = 0
             if c not in ssh_conns:
                 ssh_conns.append(c)
 
@@ -273,16 +303,16 @@ def ssh_detector():
 
         time.sleep(1)
 
+        print("-"*30)
         for c in ssh_conns:
             score = cal_score(c)
+            print(c)
             print(score)
             if score >= 100:
                 if c not in ssh_attacks:
                     ssh_attacks.append(c)
 
         save_attack_log(ssh_attacks)
-
-        print(ssh_conns)
 
 
 if __name__ == "__main__":

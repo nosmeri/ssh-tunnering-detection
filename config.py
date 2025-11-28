@@ -12,6 +12,8 @@ class Config:
     MIN_TIME: float = 100  # 시간 점수 최소 시간(초)
     TIME_SCORE: float = 1  # 1분마다 점수 비례(기준은 나중에 바꿀 수 있음)
     DATA_SCORE: float = 10  # 최근 10초 1MB마다 점수 비례
+    INTERACTIVE_SCORE: float = 5  # 작은 패킷 빈도 점수
+    BULK_SCORE: float = 15  # 큰 패킷 빈도 점수
     SNIFF_TIMEOUT: float = 3  # sniff 주기
 
     SOCK_PATH: str = "./ssh_detector.sock"
