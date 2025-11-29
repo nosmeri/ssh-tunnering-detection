@@ -7,7 +7,7 @@ import struct
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, Tuple
 
 import psutil
 from scapy.all import TCP, sniff
@@ -17,6 +17,22 @@ from config import Config
 
 @dataclass()
 class Connections:
+    """
+    SSH 연결 정보를 저장하는 데이터 클래스입니다.
+
+    Attributes:
+        laddr (str): 로컬 IP 주소.
+        lport (int): 로컬 포트 번호.
+        raddr (str): 원격 IP 주소.
+        rport (int): 원격 포트 번호.
+        pid (int): 프로세스 ID.
+        cmdline (str): 프로세스 실행 명령어.
+        ts (float): 연결 생성 시간 (timestamp).
+        bytes (int): 총 전송 바이트 수.
+        latest_bytes (int): 최근 측정 주기 동안의 전송 바이트 수.
+        small_pkt_count (int): 작은 패킷(100바이트 미만) 개수.
+        large_pkt_count (int): 큰 패킷(1000바이트 초과) 개수.
+    """
     laddr: str
     lport: int
     raddr: str
@@ -32,10 +48,22 @@ class Connections:
 
 @dataclass()
 class BannedConnection(Connections):
+    """
+    차단된 SSH 연결 정보를 저장하는 데이터 클래스입니다.
+
+    Attributes:
+        score (float): 차단 당시의 위험도 점수.
+    """
     score: float = 0.0
 
 
 def save_attack_log(attacks):
+    """
+    공격 로그를 파일에 저장합니다.
+
+    Args:
+        attacks (list[Connections]): 저장할 공격 연결 목록.
+    """
     with open(config.ATTACK_LOG_FILE, "w") as f:
         for atk in attacks:
             line = json.dumps(asdict(atk), ensure_ascii=False)
@@ -43,6 +71,12 @@ def save_attack_log(attacks):
 
 
 def load_attack_log():
+    """
+    파일에서 공격 로그를 로드합니다.
+
+    Returns:
+        list[Connections]: 로드된 공격 연결 목록.
+    """
     if not os.path.exists(config.ATTACK_LOG_FILE):
         return []
     attacks = []
@@ -53,6 +87,12 @@ def load_attack_log():
 
 
 def get_ssh_connections() -> Dict[Tuple[str, int, str, int], Connections]:
+    """
+    현재 시스템의 활성 SSH 연결을 수집합니다.
+
+    Returns:
+        Dict[Tuple[str, int, str, int], Connections]: (laddr, lport, raddr, rport)를 키로 하는 연결 정보 딕셔너리.
+    """
     ssh_conns_dict = {}
     conns = psutil.net_connections(kind="tcp")
     for c in conns:
@@ -83,6 +123,15 @@ def get_ssh_connections() -> Dict[Tuple[str, int, str, int], Connections]:
 
 
 def cal_score(conn):
+    """
+    연결의 위험도 점수를 계산합니다.
+
+    Args:
+        conn (Connections): 점수를 계산할 연결 객체.
+
+    Returns:
+        float: 계산된 위험도 점수.
+    """
     score = 0
 
     if conn.lport != 22 and conn.rport != 22:
@@ -119,6 +168,12 @@ def cal_score(conn):
 
 
 def process_packet(packet):
+    """
+    캡처된 패킷을 처리하여 연결 통계를 업데이트합니다.
+
+    Args:
+        packet (scapy.packet.Packet): 캡처된 패킷.
+    """
     if packet.haslayer(TCP):
         pkt_len = len(packet)
         
@@ -153,14 +208,24 @@ def process_packet(packet):
                 c.large_pkt_count += 1
 
 
-# 토큰 로드
 def load_token():
+    """
+    인증 토큰을 파일에서 로드합니다.
+
+    Returns:
+        str: 로드된 토큰 문자열.
+    """
     with open(config.TOKEN_FILE, "r") as f:
         return f.read().strip()
 
 
-# 소켓 준비
 def prepare_socket():
+    """
+    Unix 도메인 소켓을 생성하고 준비합니다.
+
+    Returns:
+        socket.socket: 생성된 소켓 객체.
+    """
     if os.path.exists(config.SOCK_PATH):
         os.remove(config.SOCK_PATH)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -171,8 +236,16 @@ def prepare_socket():
     return srv
 
 
-# 길이 접두사가 있는 데이터 읽기/쓰기
 def read_prefixed(conn):
+    """
+    길이 접두사가 있는 데이터를 소켓에서 읽습니다.
+
+    Args:
+        conn (socket.socket): 데이터를 읽을 소켓.
+
+    Returns:
+        bytes: 읽은 데이터. 실패 시 None.
+    """
     hdr = conn.recv(4)
     if not hdr or len(hdr) < 4:
         return None
@@ -187,20 +260,40 @@ def read_prefixed(conn):
 
 
 def send_prefixed(conn, obj):
+    """
+    객체를 JSON으로 직렬화하고 길이 접두사를 붙여 소켓으로 전송합니다.
+
+    Args:
+        conn (socket.socket): 데이터를 보낼 소켓.
+        obj (Any): 전송할 객체.
+    """
     b = json.dumps(obj, ensure_ascii=False).encode()
     conn.sendall(struct.pack(">I", len(b)) + b)
 
 
-# HMAC 계산
 def compute_hmac_for(obj: Dict[str, Any]) -> str:
+    """
+    주어진 객체에 대한 HMAC 서명을 계산합니다.
+
+    Args:
+        obj (Dict[str, Any]): 서명할 객체.
+
+    Returns:
+        str: 계산된 HMAC 16진수 문자열.
+    """
     # canonicalize: type+payload sorted, no spaces
     check = {"type": obj["type"], "payload": obj["payload"]}
     cb = json.dumps(check, separators=(",", ":"), sort_keys=True).encode()
     return hmac.new(SECRET_TOKEN, cb, hashlib.sha256).hexdigest()
 
 
-# 화이트리스트 로드/저장
 def load_whitelist():
+    """
+    화이트리스트를 파일에서 로드합니다.
+
+    Returns:
+        list: 화이트리스트 IP 목록.
+    """
     if not os.path.exists(config.WHITELIST_FILE):
         return []
     with open(config.WHITELIST_FILE, "r") as f:
@@ -208,6 +301,12 @@ def load_whitelist():
 
 
 def save_whitelist(wl):
+    """
+    화이트리스트를 파일에 저장합니다.
+
+    Args:
+        wl (list): 저장할 화이트리스트 IP 목록.
+    """
     tmp = config.WHITELIST_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(wl, f, indent=2)
@@ -217,13 +316,27 @@ def save_whitelist(wl):
 
 
 def append_attack_log(entry):
+    """
+    공격 로그 파일에 새로운 항목을 추가합니다.
+
+    Args:
+        entry (dict): 추가할 로그 항목.
+    """
     line = json.dumps(entry, ensure_ascii=False)
     with open(config.ATTACK_LOG_FILE, "a") as f:
         f.write(line + "\n")
 
 
-# 요청 처리
 def handle_request(obj):
+    """
+    클라이언트 요청을 처리하고 결과를 반환합니다.
+
+    Args:
+        obj (dict): 요청 객체.
+
+    Returns:
+        dict: 처리 결과 응답 객체.
+    """
     t = obj.get("type")
     payload = obj.get("payload", {})
     if t == "whitelist_add":
@@ -312,8 +425,13 @@ def handle_request(obj):
     return {"ok": False, "error": "unknown type"}
 
 
-# 클라이언트(conn)의 요청을 처리한 뒤 응답
 def client_worker(conn):
+    """
+    클라이언트 연결을 처리하는 워커 함수입니다.
+
+    Args:
+        conn (socket.socket): 클라이언트 소켓.
+    """
     try:
         raw = read_prefixed(conn)
         if raw is None:
@@ -340,6 +458,12 @@ def client_worker(conn):
 
 
 def kill_process(pid):
+    """
+    지정된 PID의 프로세스를 강제 종료합니다.
+
+    Args:
+        pid (int): 종료할 프로세스 ID.
+    """
     try:
         proc = psutil.Process(pid)
         proc.terminate()
@@ -350,8 +474,10 @@ def kill_process(pid):
         print(f"Failed to kill process {pid}: {e}")
 
 
-# SSH 탐지기
 def ssh_detector():
+    """
+    SSH 연결을 지속적으로 모니터링하고 분석하는 메인 루프입니다.
+    """
     global ssh_conns # Need to modify global dict
     while True:
         ssh_conns_new = get_ssh_connections()

@@ -46,6 +46,13 @@ uv run uvicorn web_server:app --host 0.0.0.0 --port 8000
 
 Access the dashboard at: <http://localhost:8000>
 
+**Features:**
+
+- **Graph Interval**: Select time intervals (1m, 5m, 10m, 30m, 1h) for the trend graph.
+- **Attack Limit**: Configure the number of displayed attacks (50 - 1000).
+- **Mitigation Controls**: Real-time toggle for auto-mitigation.
+- **Banned Logs**: History of automatically terminated connections.
+
 ## Detection Logic
 
 The system scores SSH connections based on several heuristics:
@@ -60,3 +67,11 @@ The system scores SSH connections based on several heuristics:
 ## Configuration
 
 Configuration is managed via `config.json` (generated from `config.py` on first run). You can tune scoring thresholds and file paths there.
+
+### Automated Mitigation
+
+The system can automatically terminate SSH processes that exceed a critical score.
+
+- **Enable/Disable**: Toggle "Automated Mitigation" in the web UI.
+- **Critical Score**: Set `CRITICAL_SCORE` in `config.py` (default: 1000).
+- **History**: View blocked connections in the "Mitigation History" table.
