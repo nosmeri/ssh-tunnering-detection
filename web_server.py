@@ -18,7 +18,10 @@ class RequestType(Enum):
     REMOVE_WHITELIST = "whitelist_remove"
     LIST_WHITELIST = "list_whitelist"
     GET_LOG = "get_log"
+    GET_BANNED = "get_banned"
     GET_STATS = "get_stats"
+    GET_CONFIG = "get_config"
+    SET_CONFIG = "set_config"
 
 
 config = Config.load()
@@ -42,22 +45,27 @@ def send_request(obj):
     data = json.dumps(obj, ensure_ascii=False).encode()
     hdr = struct.pack(">I", len(data))
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(config.SOCK_PATH)
-    s.sendall(hdr + data)
-    # recv response
-    hdr = s.recv(4)
-    if not hdr or len(hdr) < 4:
+    try:
+        s.connect(config.SOCK_PATH)
+    except (FileNotFoundError, ConnectionRefusedError):
+        return {"ok": False, "error": "Detector is not running (socket not found)"}
+    
+    try:
+        s.sendall(hdr + data)
+        # recv response
+        hdr = s.recv(4)
+        if not hdr or len(hdr) < 4:
+            return {"ok": False, "error": "Connection closed unexpectedly"}
+        length = struct.unpack(">I", hdr)[0]
+        data = b""
+        while len(data) < length:
+            chunk = s.recv(length - len(data))
+            if not chunk:
+                break
+            data += chunk
+        return json.loads(data.decode())
+    finally:
         s.close()
-        return None
-    length = struct.unpack(">I", hdr)[0]
-    data = b""
-    while len(data) < length:
-        chunk = s.recv(length - len(data))
-        if not chunk:
-            break
-        data += chunk
-    s.close()
-    return json.loads(data.decode())
 
 
 def generic_api_request(type_: RequestType, payload: Dict = {}):
@@ -83,8 +91,12 @@ def main_page(request: Request):
 @app.get("/api/get_logs")
 def get_data(interval: int = Query(None, gt=0)):
     now = datetime.now()
+    resp = generic_api_request(RequestType.GET_LOG)
+    if not resp or not resp.get("ok"):
+        return {"labels": [], "datas": []}
+        
     attacks_ts = list(
-        map(lambda x: x["ts"], generic_api_request(RequestType.GET_LOG)["result"])
+        map(lambda x: x["ts"], resp["result"])
     )
 
     # Use provided interval or default from config
@@ -106,25 +118,26 @@ def get_data(interval: int = Query(None, gt=0)):
 
 @app.get("/api/get_attacks")
 def get_attacks(limit: int = Query(100, gt=0, le=2000), query: Optional[str] = None):
-    attacks = generic_api_request(RequestType.GET_LOG)["result"][-limit:]
-    if query:
-        q = query.lower()
-        filtered = []
-        for i in attacks:
-            s = (
-                (str(i.get("laddr")) or "")
-                + ":"
-                + (str(i.get("lport")) or "")
-                + " "
-                + (str(i.get("raddr")) or "")
-                + ":"
-                + (str(i.get("rport")) or "")
-            )
-            if q in s.lower():
-                filtered.append(i)
-        attacks = filtered
+    resp = generic_api_request(RequestType.GET_LOG)
+    if not resp or not resp.get("ok"):
+        return []
 
+    attacks = resp["result"][-limit:]
+    if query:
+        filtered = []
+        for x in attacks:
+            if query in str(x["laddr"]) or query in str(x["raddr"]) or query in str(x["lport"]) or query in str(x["rport"]):
+                filtered.append(x)
+        return filtered
     return attacks
+
+
+@app.get("/api/get_banned")
+def get_banned():
+    resp = generic_api_request(RequestType.GET_BANNED)
+    if not resp or not resp.get("ok"):
+        return []
+    return resp["result"]
 
 
 @app.get("/api/get_whitelist")
@@ -140,3 +153,16 @@ def add_whitelist(ip: str = Query(...)):
 @app.post("/api/remove_whitelist")
 def remove_whitelist(ip: str = Query(...)):
     return generic_api_request(RequestType.REMOVE_WHITELIST, {"ip": ip})
+
+
+@app.get("/api/get_config")
+def get_config():
+    return generic_api_request(RequestType.GET_CONFIG)
+
+
+@app.post("/api/set_config")
+def set_config(mitigation_enabled: bool = Query(None)):
+    payload = {}
+    if mitigation_enabled is not None:
+        payload["mitigation_enabled"] = mitigation_enabled
+    return generic_api_request(RequestType.SET_CONFIG, payload)

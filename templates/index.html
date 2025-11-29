@@ -242,6 +242,54 @@
             gap: 8px;
         }
 
+        /* Toggle Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+            margin-left: 10px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--bg-hover);
+            transition: .4s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: var(--text-muted);
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: var(--danger);
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(20px);
+            background-color: #fff;
+        }
+
         @keyframes slideIn {
             from {
                 transform: translateX(100%);
@@ -274,6 +322,13 @@
                 <div class="status-badge">
                     <div id="connection-dot" class="status-dot"></div>
                     <span id="status">Connecting...</span>
+                </div>
+                <div style="margin-left: 20px; display: flex; align-items: center; gap: 8px;">
+                    <span class="muted" style="font-size: 0.8rem;">Auto Mitigation</span>
+                    <label class="switch">
+                        <input type="checkbox" id="mitigation-toggle">
+                        <span class="slider"></span>
+                    </label>
                 </div>
                 <div style="margin-left: 20px;">
                     <select id="graph-interval" style="padding: 4px 8px; font-size: 0.8rem;">
@@ -353,6 +408,30 @@
                         </tr>
                     </thead>
                     <tbody id="whitelist_tb"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Mitigation History -->
+        <div class="card full-width">
+            <div class="card-header">
+                <h2>Mitigation History (Auto-Banned)</h2>
+                <div class="controls">
+                    <button id="refresh_banned">Refresh</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>PID</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th>Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="banned_tb"></tbody>
                 </table>
             </div>
         </div>
@@ -622,6 +701,88 @@
         });
 
         fetchWhitelist();
+        // --- Config / Mitigation ---
+        const mitigationToggle = document.getElementById('mitigation-toggle');
+
+        async function fetchConfig() {
+            try {
+                const res = await fetch('/api/get_config');
+                const data = await res.json();
+                if (data.ok && data.result) {
+                    mitigationToggle.checked = data.result.mitigation_enabled;
+                }
+            } catch (e) {
+                console.error("Failed to fetch config", e);
+            }
+        }
+
+        mitigationToggle.addEventListener('change', async () => {
+            const enabled = mitigationToggle.checked;
+            try {
+                const res = await fetch(`/api/set_config?mitigation_enabled=${enabled}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    showToast(`Auto Mitigation ${enabled ? 'Enabled' : 'Disabled'}`, enabled ? 'error' : 'info');
+                } else {
+                    mitigationToggle.checked = !enabled; // Revert
+                    showToast('Failed to update config', 'error');
+                }
+            } catch (e) {
+                mitigationToggle.checked = !enabled; // Revert
+                showToast('Error updating config', 'error');
+            }
+        });
+
+        fetchConfig();
+
+        // --- Mitigation History ---
+        const bannedTb = document.getElementById('banned_tb');
+
+        async function fetchBanned() {
+            try {
+                const res = await fetch('/api/get_banned', { cache: 'no-store' });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                renderBannedTable(data);
+            } catch (e) {
+                console.error('Failed to fetch banned logs:', e);
+            }
+        }
+
+        function renderBannedTable(items) {
+            bannedTb.innerHTML = '';
+            if (!items || !items.length) {
+                bannedTb.innerHTML = '<tr><td colspan="5" style="text-align:center;" class="muted">No mitigation history yet</td></tr>';
+                return;
+            }
+            // Reverse to show newest first
+            const sorted = [...items].reverse();
+
+            for (const it of sorted) {
+                const tr = document.createElement('tr');
+                const d = new Date((it.ts || Date.now()) * 1000);
+                const ts = d.toLocaleTimeString();
+
+                tr.innerHTML = `
+                    <td class="muted">${ts}</td>
+                    <td style="color:#ef4444">${it.pid}</td>
+                    <td style="color:#60a5fa">${it.laddr}:${it.lport}</td>
+                    <td style="color:#a78bfa">${it.raddr}:${it.rport}</td>
+                    <td style="color:#f59e0b; font-weight:bold">${it.score.toFixed(1)}</td>
+                `;
+                bannedTb.appendChild(tr);
+            }
+        }
+
+        document.getElementById('refresh_banned').addEventListener('click', () => {
+            fetchBanned();
+            showToast('Mitigation history refreshed');
+        });
+
+        // Initial fetch
+        fetchBanned();
+        // Refresh periodically
+        setInterval(fetchBanned, 10000);
     </script>
 </body>
 

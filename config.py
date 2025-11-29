@@ -16,6 +16,9 @@ class Config:
     BULK_SCORE: float = 15  # 큰 패킷 빈도 점수
     SNIFF_TIMEOUT: float = 3  # sniff 주기
 
+    MITIGATION_ENABLED: bool = False  # 자동 차단 활성화 여부
+    CRITICAL_SCORE: float = 1000  # 자동 차단 점수 임계값
+
     SOCK_PATH: str = "./ssh_detector.sock"
     TOKEN_FILE: str = "./token"  # 권한 0600
     WHITELIST_FILE: str = "./whitelist.json"

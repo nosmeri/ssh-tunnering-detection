@@ -30,6 +30,11 @@ class Connections:
     large_pkt_count: int = field(default=0, compare=False)
 
 
+@dataclass()
+class BannedConnection(Connections):
+    score: float = 0.0
+
+
 def save_attack_log(attacks):
     with open(config.ATTACK_LOG_FILE, "w") as f:
         for atk in attacks:
@@ -249,6 +254,45 @@ def handle_request(obj):
         with stats_lock:
             return {"ok": True, "result": dict(ssh_stats)}
 
+    if t == "get_banned":
+        return {"ok": True, "result": ssh_banned}
+
+    if t == "get_config":
+        return {
+            "ok": True,
+            "result": {
+                "mitigation_enabled": config.MITIGATION_ENABLED,
+                "critical_score": config.CRITICAL_SCORE,
+            },
+        }
+
+    if t == "set_config":
+        if "mitigation_enabled" in payload:
+            config.MITIGATION_ENABLED = bool(payload["mitigation_enabled"])
+        if "critical_score" in payload:
+            config.CRITICAL_SCORE = float(payload["critical_score"])
+        
+        # Save to file
+        Config.load().MITIGATION_ENABLED = config.MITIGATION_ENABLED
+        Config.load().CRITICAL_SCORE = config.CRITICAL_SCORE
+        # Note: The above load() creates a new instance, we need to update the file properly.
+        # Let's just re-save the current config object.
+        # But Config.load() reads from file. We should update the file with current values.
+        
+        # Re-saving logic:
+        # 1. Load current file to preserve other settings (though we have them in memory)
+        # 2. Update specific fields
+        # 3. Write back
+        
+        current_cfg = Config.load()
+        current_cfg.MITIGATION_ENABLED = config.MITIGATION_ENABLED
+        current_cfg.CRITICAL_SCORE = config.CRITICAL_SCORE
+        
+        with open(config.CFG_PATH if hasattr(config, 'CFG_PATH') else "config.json", "w") as f:
+             json.dump(asdict(current_cfg), f, indent=2, ensure_ascii=False)
+
+        return {"ok": True, "result": "updated"}
+
     return {"ok": False, "error": "unknown type"}
 
 
@@ -279,6 +323,17 @@ def client_worker(conn):
         conn.close()
 
 
+def kill_process(pid):
+    try:
+        proc = psutil.Process(pid)
+        proc.terminate()
+        print(f"Killed process {pid}")
+    except psutil.NoSuchProcess:
+        pass
+    except Exception as e:
+        print(f"Failed to kill process {pid}: {e}")
+
+
 # SSH 탐지기
 def ssh_detector():
     while True:
@@ -303,11 +358,36 @@ def ssh_detector():
 
         time.sleep(1)
 
-        print("-"*30)
-        for c in ssh_conns:
+        print("-" * 30)
+        print(f"{len(ssh_conns)} connections")
+        
+        # Iterate over a copy to safely modify the list if needed
+        for c in list(ssh_conns):
             score = cal_score(c)
             print(c)
             print(score)
+            
+            if score >= config.CRITICAL_SCORE and config.MITIGATION_ENABLED:
+                print(f"CRITICAL SCORE DETECTED: {score} for PID {c.pid}. Mitigating...")
+                kill_process(c.pid)
+                
+                # Log banned attack
+                banned_entry = BannedConnection(
+                    laddr=c.laddr,
+                    lport=c.lport,
+                    raddr=c.raddr,
+                    rport=c.rport,
+                    pid=c.pid,
+                    cmdline=c.cmdline,
+                    ts=time.time(),
+                    score=score
+                )
+                ssh_banned.append(asdict(banned_entry))
+                
+                if c in ssh_conns:
+                    ssh_conns.remove(c)
+                continue
+
             if score >= 100:
                 if c not in ssh_attacks:
                     ssh_attacks.append(c)
@@ -320,6 +400,7 @@ if __name__ == "__main__":
     config = Config.load()
 
     ssh_attacks = load_attack_log()
+    ssh_banned = []
     ssh_conns = ssh_attacks.copy()
 
     ssh_stats = {
