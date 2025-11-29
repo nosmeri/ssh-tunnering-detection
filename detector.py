@@ -7,7 +7,7 @@ import struct
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple, Optional
 
 import psutil
 from scapy.all import TCP, sniff
@@ -52,8 +52,8 @@ def load_attack_log():
     return attacks
 
 
-def get_ssh_connections():
-    ssh_conns = []
+def get_ssh_connections() -> Dict[Tuple[str, int, str, int], Connections]:
+    ssh_conns_dict = {}
     conns = psutil.net_connections(kind="tcp")
     for c in conns:
         if c.status == psutil.CONN_ESTABLISHED:
@@ -68,17 +68,18 @@ def get_ssh_connections():
                 continue
             if c.raddr.ip in load_whitelist():
                 continue
-            ssh_conns.append(
-                Connections(
-                    c.laddr.ip,
-                    c.laddr.port,
-                    c.raddr.ip,
-                    c.raddr.port,
-                    c.pid,
-                    process.cmdline(),
-                )
+            
+            conn_obj = Connections(
+                c.laddr.ip,
+                c.laddr.port,
+                c.raddr.ip,
+                c.raddr.port,
+                c.pid,
+                process.cmdline(),
             )
-    return ssh_conns
+            ssh_conns_dict[(c.laddr.ip, c.laddr.port, c.raddr.ip, c.raddr.port)] = conn_obj
+            
+    return ssh_conns_dict
 
 
 def cal_score(conn):
@@ -120,21 +121,36 @@ def cal_score(conn):
 def process_packet(packet):
     if packet.haslayer(TCP):
         pkt_len = len(packet)
-        for c in ssh_conns:
-            if (packet[TCP].sport == c.lport and packet[TCP].dport == c.rport) or (
-                packet[TCP].dport == c.lport and packet[TCP].sport == c.rport
-            ):
-                c.bytes += pkt_len
-                c.latest_bytes += pkt_len
-                
-                # 패킷 크기 분류
-                if pkt_len < 100:
-                    c.small_pkt_count += 1
-                elif pkt_len > 1000:
-                    c.large_pkt_count += 1
-                    
-                # print(f"Packet: {packet[IP].src}:{packet[TCP].sport} -> {packet[IP].dst}:{packet[TCP].dport}, Size: {len(packet)}")
-                break
+        
+        # O(1) lookup using dictionary
+        # Try both directions
+        src_ip = packet[TCP].options[0][1] if False else packet[0][1].src # Scapy structure varies, safer to use IP layer
+        # Wait, packet[IP] is safer.
+        if not packet.haslayer("IP"):
+            return
+
+        src = packet["IP"].src
+        dst = packet["IP"].dst
+        sport = packet[TCP].sport
+        dport = packet[TCP].dport
+        
+        # Key format: (laddr, lport, raddr, rport)
+        # Check forward: src=laddr, sport=lport, dst=raddr, dport=rport
+        c = ssh_conns.get((src, sport, dst, dport))
+        
+        # Check reverse: dst=laddr, dport=lport, src=raddr, sport=rport
+        if not c:
+            c = ssh_conns.get((dst, dport, src, sport))
+            
+        if c:
+            c.bytes += pkt_len
+            c.latest_bytes += pkt_len
+            
+            # 패킷 크기 분류
+            if pkt_len < 100:
+                c.small_pkt_count += 1
+            elif pkt_len > 1000:
+                c.large_pkt_count += 1
 
 
 # 토큰 로드
@@ -336,23 +352,33 @@ def kill_process(pid):
 
 # SSH 탐지기
 def ssh_detector():
+    global ssh_conns # Need to modify global dict
     while True:
         ssh_conns_new = get_ssh_connections()
 
-        for i in range(len(ssh_conns) - 1, -1, -1):
-            c = ssh_conns[i]
-            c.latest_bytes = 0
-            c.small_pkt_count = 0
-            c.large_pkt_count = 0
-            if c not in ssh_conns_new:
-                ssh_conns.pop(i)
+        # Remove old connections
+        # Create list of keys to remove to avoid runtime error during iteration
+        keys_to_remove = []
+        for k, c in ssh_conns.items():
+            if k not in ssh_conns_new:
+                keys_to_remove.append(k)
+            else:
+                # Reset counters for existing connections
+                c.latest_bytes = 0
+                c.small_pkt_count = 0
+                c.large_pkt_count = 0
+        
+        for k in keys_to_remove:
+            del ssh_conns[k]
 
-        for c in ssh_conns_new:
-            c.latest_bytes = 0
-            c.small_pkt_count = 0
-            c.large_pkt_count = 0
-            if c not in ssh_conns:
-                ssh_conns.append(c)
+        # Add new connections
+        for k, c in ssh_conns_new.items():
+            if k not in ssh_conns:
+                # Initialize counters
+                c.latest_bytes = 0
+                c.small_pkt_count = 0
+                c.large_pkt_count = 0
+                ssh_conns[k] = c
 
         sniff(timeout=config.SNIFF_TIMEOUT, prn=process_packet)
 
@@ -361,8 +387,8 @@ def ssh_detector():
         print("-" * 30)
         print(f"{len(ssh_conns)} connections")
         
-        # Iterate over a copy to safely modify the list if needed
-        for c in list(ssh_conns):
+        # Iterate over a copy of values
+        for c in list(ssh_conns.values()):
             score = cal_score(c)
             print(c)
             print(score)
@@ -384,13 +410,27 @@ def ssh_detector():
                 )
                 ssh_banned.append(asdict(banned_entry))
                 
-                if c in ssh_conns:
-                    ssh_conns.remove(c)
+                if c in ssh_conns.values():
+                    # Find key to remove
+                    key_to_remove = None
+                    for k, v in ssh_conns.items():
+                        if v == c:
+                            key_to_remove = k
+                            break
+                    if key_to_remove:
+                        del ssh_conns[key_to_remove]
                 continue
 
             if score >= 100:
                 if c not in ssh_attacks:
                     ssh_attacks.append(c)
+
+        # Memory Limit Enforcement
+        if len(ssh_attacks) > config.MAX_LOG_ENTRIES:
+            ssh_attacks = ssh_attacks[-config.MAX_LOG_ENTRIES:]
+            
+        if len(ssh_banned) > config.MAX_LOG_ENTRIES:
+            ssh_banned = ssh_banned[-config.MAX_LOG_ENTRIES:]
 
         save_attack_log(ssh_attacks)
 
@@ -401,7 +441,11 @@ if __name__ == "__main__":
 
     ssh_attacks = load_attack_log()
     ssh_banned = []
-    ssh_conns = ssh_attacks.copy()
+    # ssh_conns needs to be a dict now. 
+    # We can't easily restore state from ssh_attacks list to dict without re-scanning, 
+    # so we start empty or convert if needed. 
+    # For simplicity, let's start fresh for active connections or just rely on get_ssh_connections()
+    ssh_conns: Dict[Tuple[str, int, str, int], Connections] = {}
 
     ssh_stats = {
         "total_connections": 0,

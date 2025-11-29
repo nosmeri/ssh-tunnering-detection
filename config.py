@@ -18,6 +18,7 @@ class Config:
 
     MITIGATION_ENABLED: bool = False  # 자동 차단 활성화 여부
     CRITICAL_SCORE: float = 1000  # 자동 차단 점수 임계값
+    MAX_LOG_ENTRIES: int = 1000  # 메모리 내 로그 최대 개수
 
     SOCK_PATH: str = "./ssh_detector.sock"
     TOKEN_FILE: str = "./token"  # 권한 0600
