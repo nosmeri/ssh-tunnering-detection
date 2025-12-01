@@ -139,8 +139,8 @@ def cal_score(conn):
 
     duration = time.time() - conn.ts
     if duration > config.MIN_TIME:
-        # 시간 점수를 비선형으로 증가 (로그 스케일 등 고려 가능하나 일단 선형 유지하되 가중치 조절)
-        score += (duration / 60) * config.TIME_SCORE
+        # User requested non-linear increase. Using 1.5 power for milder growth than quadratic.
+        score += ((duration / 60) ** 1.5) * config.TIME_SCORE
 
     if conn.cmdline and (
         "-R" in conn.cmdline or "-D" in conn.cmdline or "-L" in conn.cmdline
