@@ -569,12 +569,12 @@
                 return;
             }
             // Reverse to show newest first if not already
-            const sorted = [...items].reverse();
+            const sorted = [...items].sort((a, b) => b.ts - a.ts);
 
             for (const it of sorted) {
                 const tr = document.createElement('tr');
                 const d = new Date((it.ts || Date.now()) * 1000);
-                const ts = d.toLocaleTimeString();
+                const ts = d.toLocaleString();
 
                 tr.innerHTML = `
                     <td class="muted">${ts}</td>
@@ -756,12 +756,12 @@
                 return;
             }
             // Reverse to show newest first
-            const sorted = [...items].reverse();
+            const sorted = [...items].sort((a, b) => b.ts - a.ts);
 
             for (const it of sorted) {
                 const tr = document.createElement('tr');
                 const d = new Date((it.ts || Date.now()) * 1000);
-                const ts = d.toLocaleTimeString();
+                const ts = d.toLocaleString();
 
                 tr.innerHTML = `
                     <td class="muted">${ts}</td>
