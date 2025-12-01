@@ -155,7 +155,6 @@ def cal_score(conn):
         * config.DATA_SCORE
     )
 
-    # 휴리스틱: 패킷 크기 분석
     # 작은 패킷이 많으면 인터랙티브 터널링 가능성 (Shell 등)
     if conn.small_pkt_count > 20: # 임계값
         score += config.INTERACTIVE_SCORE * (conn.small_pkt_count / 10)
@@ -478,7 +477,7 @@ def ssh_detector():
     """
     SSH 연결을 지속적으로 모니터링하고 분석하는 메인 루프입니다.
     """
-    global ssh_conns # Need to modify global dict
+    global ssh_conns, ssh_attacks, ssh_banned # Need to modify global dict
     while True:
         ssh_conns_new = get_ssh_connections()
 
